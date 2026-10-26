@@ -1,0 +1,15 @@
+Limit  (cost=75625.57..75625.60 rows=10 width=456) (actual time=458.426..458.431 rows=7.00 loops=1)
+  Buffers: shared hit=48798 read=14327
+  I/O Timings: shared read=99.204
+  ->  Sort  (cost=75625.57..75625.64 rows=26 width=456) (actual time=458.425..458.427 rows=7.00 loops=1)
+        Sort Key: created_at DESC
+        Sort Method: quicksort  Memory: 28kB
+        Buffers: shared hit=48798 read=14327
+        I/O Timings: shared read=99.204
+        ->  Seq Scan on orders  (cost=0.00..75625.01 rows=26 width=456) (actual time=180.492..458.395 rows=7.00 loops=1)
+              Filter: (customer_id = 31337)
+              Rows Removed by Filter: 999993
+              Buffers: shared hit=48798 read=14327
+              I/O Timings: shared read=99.204
+Planning Time: 0.059 ms
+Execution Time: 458.453 ms

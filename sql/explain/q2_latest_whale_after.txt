@@ -1,0 +1,8 @@
+Limit  (cost=0.42..37.20 rows=10 width=457) (actual time=0.012..0.018 rows=10.00 loops=1)
+  Buffers: shared hit=13
+  ->  Index Scan using idx_orders_customer_created on orders  (cost=0.42..44869.92 rows=12200 width=457) (actual time=0.011..0.017 rows=10.00 loops=1)
+        Index Cond: (customer_id = 7)
+        Index Searches: 1
+        Buffers: shared hit=13
+Planning Time: 0.049 ms
+Execution Time: 0.026 ms
