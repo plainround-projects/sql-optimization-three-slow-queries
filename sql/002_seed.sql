@@ -1,8 +1,14 @@
 -- 002_seed.sql: DML. One million orders with real skew, then fresh statistics.
+-- Safe to run twice: a table that already has rows is left alone (use `make reset` to start from nothing).
 -- setseed makes the "random" data identical on every run, so the notes and plans repeat.
 SELECT setseed(0.42);
 SET timezone = 'UTC';
 
+SELECT NOT EXISTS (SELECT 1 FROM orders) AS orders_empty,
+       NOT EXISTS (SELECT 1 FROM order_notes_demo) AS demo_empty \gset
+
+\if :orders_empty
+BEGIN;
 INSERT INTO orders (customer_id, status, created_at, total, notes)
 SELECT
   CASE WHEN random() < 0.6 THEN 1 + floor(random() * 50)::int          -- 60% of rows go to 50 customers
@@ -12,12 +18,18 @@ SELECT
   round((random() * 500 + 5)::numeric, 2),
   repeat('customer note text - ', 20)                                  -- a deliberately wide notes column
 FROM generate_series(1, 1000000);
+COMMIT;
+\endif
 
 -- 20,000 rows with a 5 KB incompressible-ish note (160 distinct md5 strings) for the TOAST demo.
+\if :demo_empty
+BEGIN;
 INSERT INTO order_notes_demo (customer_id, status, created_at, total, notes)
 SELECT 7, 'paid', timestamp '2026-01-01' + (series.n * interval '15 minutes'), 10.00,
        (SELECT string_agg(md5(series.n::text || part::text), '') FROM generate_series(1, 160) AS part)
 FROM generate_series(1, 20000) AS series(n);
+COMMIT;
+\endif
 
 -- Statistics for the planner, and the visibility map that index-only scans need.
 VACUUM (ANALYZE) orders;

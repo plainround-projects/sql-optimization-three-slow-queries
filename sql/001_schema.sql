@@ -1,11 +1,10 @@
--- 001_schema.sql: DDL for the "Three slow queries" lab (PostgreSQL 18).
--- Only the primary key is indexed. Every other index in this project is added by a
--- migration, one at a time, after reading the plan that justifies it.
+-- 001_schema.sql: DDL for the "Three slow queries" lab (PostgreSQL 18). Safe to run twice: every statement is
+-- IF NOT EXISTS or idempotent, and the whole file is one transaction.
+-- Only the primary key is indexed. Every other index in this project is added by a migration, one at a time,
+-- after reading the plan that justifies it.
+BEGIN;
 
-DROP TABLE IF EXISTS order_notes_demo;
-DROP TABLE IF EXISTS orders CASCADE;
-
-CREATE TABLE orders (
+CREATE TABLE IF NOT EXISTS orders (
   id          BIGSERIAL PRIMARY KEY,
   customer_id INTEGER       NOT NULL,
   status      TEXT          NOT NULL,
@@ -21,7 +20,7 @@ COMMENT ON COLUMN orders.notes       IS 'Wide free text the listing never shows;
 
 -- A small second table for the "why does a big text column cost so much" experiment.
 -- Its notes column is stored out of line (TOAST), which the 420-byte notes above never are.
-CREATE TABLE order_notes_demo (
+CREATE TABLE IF NOT EXISTS order_notes_demo (
   id          BIGSERIAL PRIMARY KEY,
   customer_id INTEGER       NOT NULL,
   status      TEXT          NOT NULL,
@@ -31,3 +30,5 @@ CREATE TABLE order_notes_demo (
 );
 ALTER TABLE order_notes_demo ALTER COLUMN notes SET STORAGE EXTERNAL;   -- out of line, uncompressed
 COMMENT ON TABLE order_notes_demo IS '20,000 orders whose 5 KB notes live in the TOAST table.';
+
+COMMIT;
