@@ -35,7 +35,7 @@ SELECT * FROM orders WHERE customer_id = 7 AND created_at >= '2026-03-01' AND cr
 SELECT id, customer_id, status, created_at, total FROM orders WHERE customer_id = 7 AND created_at >= '2026-03-01' AND created_at < '2026-04-01' ORDER BY created_at DESC LIMIT 5;
 
 -- Step 6: the write cost experiment, one batch of 10,000 orders (run inside a transaction you roll back).
--- scripts/run_lesson.py runs it for you, once per index configuration.
+-- `make run` does it for you, once per index configuration.
 BEGIN;
 INSERT INTO orders (customer_id, status, created_at, total, notes)
 SELECT CASE WHEN random() < 0.6 THEN 1 + floor(random() * 50)::int ELSE 51 + floor(random() * 49950)::int END,
