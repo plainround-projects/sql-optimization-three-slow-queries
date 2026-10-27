@@ -1,7 +1,7 @@
-Seq Scan on orders  (cost=0.00..78125.01 rows=5000 width=456) (actual time=1.158..384.276 rows=2748.00 loops=1)
+Seq Scan on orders  (cost=0.00..78758.28 rows=5003 width=457) (actual time=0.455..830.145 rows=2748.00 loops=1)
   Filter: (date(created_at) = '2026-03-14'::date)
   Rows Removed by Filter: 997252
-  Buffers: shared hit=47646 read=15479 written=158
-  I/O Timings: shared read=31.208 write=2.453
-Planning Time: 0.083 ms
-Execution Time: 384.711 ms
+  Buffers: shared hit=2058 read=61692
+  I/O Timings: shared read=448.925
+Planning Time: 0.130 ms
+Execution Time: 831.496 ms

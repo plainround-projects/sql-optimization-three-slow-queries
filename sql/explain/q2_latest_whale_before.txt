@@ -1,15 +1,15 @@
-Limit  (cost=75868.49..75868.51 rows=10 width=456) (actual time=499.486..499.491 rows=10.00 loops=1)
-  Buffers: shared hit=48222 read=14903
-  I/O Timings: shared read=73.535
-  ->  Sort  (cost=75868.49..75896.66 rows=11267 width=456) (actual time=499.484..499.486 rows=10.00 loops=1)
+Limit  (cost=76513.47..76513.50 rows=10 width=457) (actual time=542.664..542.667 rows=10.00 loops=1)
+  Buffers: shared hit=2634 read=61116
+  I/O Timings: shared read=363.915
+  ->  Sort  (cost=76513.47..76543.15 rows=11873 width=457) (actual time=542.661..542.663 rows=10.00 loops=1)
         Sort Key: created_at DESC
         Sort Method: top-N heapsort  Memory: 34kB
-        Buffers: shared hit=48222 read=14903
-        I/O Timings: shared read=73.535
-        ->  Seq Scan on orders  (cost=0.00..75625.01 rows=11267 width=456) (actual time=3.925..491.340 rows=11852.00 loops=1)
+        Buffers: shared hit=2634 read=61116
+        I/O Timings: shared read=363.915
+        ->  Seq Scan on orders  (cost=0.00..76256.90 rows=11873 width=457) (actual time=0.262..537.860 rows=11852.00 loops=1)
               Filter: (customer_id = 7)
               Rows Removed by Filter: 988148
-              Buffers: shared hit=48222 read=14903
-              I/O Timings: shared read=73.535
-Planning Time: 0.062 ms
-Execution Time: 499.515 ms
+              Buffers: shared hit=2634 read=61116
+              I/O Timings: shared read=363.915
+Planning Time: 0.098 ms
+Execution Time: 542.699 ms

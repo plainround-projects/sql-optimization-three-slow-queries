@@ -1,8 +1,8 @@
-Seq Scan on order_notes_demo  (cost=0.00..507.00 rows=2975 width=48) (actual time=0.009..2.521 rows=2975.00 loops=1)
+Seq Scan on order_notes_demo  (cost=0.00..507.00 rows=2975 width=48) (actual time=0.006..1.827 rows=2975.00 loops=1)
   Filter: ((created_at < '2026-02-01 00:00:00+00'::timestamp with time zone) AND (customer_id = 7))
   Rows Removed by Filter: 17025
   Buffers: shared hit=207
-Planning Time: 0.044 ms
-Serialization: time=34.135 ms  output=15055kB  format=text
+Planning Time: 0.057 ms
+Serialization: time=11.855 ms  output=15055kB  format=text
   Buffers: shared hit=10625
-Execution Time: 37.039 ms
+Execution Time: 13.952 ms
