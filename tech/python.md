@@ -645,6 +645,83 @@ def measure_host_load() -> HostLoad:
 
 `Settings | None` in the return type means "a Settings object, or None". `try: ... except ConfigurationError as error:` prints the problem and returns `None`; `print(..., file=sys.stderr)` writes to the **standard error** channel. `measure_host_load` calls `os.getloadavg()[0]` — the first of three load numbers (1, 5 and 15 minutes) — and `os.cpu_count() or 1`, which uses 1 if the count is unknown (`or` returns its right side when the left is `None` or 0).
 
+### The headers and imports not quoted elsewhere
+
+#### Reading the top of a module
+
+Most modules start with the same three parts, explained once here so that the sections below can be short. First a **docstring**: a text in triple quotes as the very first statement of a file; Python keeps it as the description of the module, and tools show it as help. Then `from __future__ import annotations`, a line that tells Python to treat type hints (the `: int` and `-> str` annotations) as plain text that is not evaluated while the file loads; this lets a hint refer to a class that is defined further down. Then the imports: `import x` makes the module `x` available; `from x import y` brings one name out of it; a dot in front, as in `from .postgres import session`, means "the module `postgres` in this same package" and two dots, `from ..domain.errors import ...`, mean "go up one package, then into `domain`". The logger line `logger = logging.getLogger(__name__)` creates a logger named after the module (`__name__` is the module's dotted name), so every log line says which module wrote it.
+
+##### The `__init__.py` files
+
+A folder is a Python **package** when it contains a file called `__init__.py`. The file may be empty or hold only a docstring, as these do. Each of the four layers has one, and its docstring states the layer's rule.
+
+`src/slow_queries/domain/__init__.py`, lines 1 to 1:
+
+```python
+"""The lesson itself: plans, costs and comparisons. Depends on nothing."""
+```
+
+`src/slow_queries/application/__init__.py`, lines 1 to 1:
+
+```python
+"""Use cases and the ports they need; no knowledge of PostgreSQL."""
+```
+
+`src/slow_queries/infrastructure/__init__.py`, lines 1 to 1:
+
+```python
+"""Adapters: PostgreSQL, files, settings, logging, retries and shutdown of the lab."""
+```
+
+`src/slow_queries/interfaces/__init__.py`, lines 1 to 1:
+
+```python
+"""Entry points: the command-line programs of the lab."""
+```
+
+
+##### `lab_database.py` and `health_probes.py`, the top of the file
+
+`src/slow_queries/infrastructure/lab_database.py`, lines 1 to 1:
+
+```python
+"""Adapter: the orders table in PostgreSQL, changed by the repository's migration files. Implements `LabDatabase`."""
+```
+
+The docstring names the role: an **adapter** (the code that connects the lab's own interface, `LabDatabase`, to a real tool, here PostgreSQL) for the orders table, which changes the table by running the repository's migration files.
+
+`src/slow_queries/infrastructure/lab_database.py`, lines 9 to 16:
+
+```python
+from ..domain.errors import UnknownStepError
+from ..domain.lesson import INDEX_NAMES
+from ..domain.plan import PlanSummary, parse_json_plan
+from ..domain.write_cost import WriteCost, median_cost, parse_write_cost
+from .logging import fields
+from .postgres import scalar, session
+from .settings import PostgresSettings
+from .sql_script import run_file
+```
+
+Eight imports from inside the package. From `domain`: `UnknownStepError` (raised for a step the lesson does not have), `INDEX_NAMES` (the names of the lesson's indexes), the plan summary and its JSON parser, and the write-cost value, its median function and its parser. From the same package: `fields` (to attach key and value pairs to log lines), `scalar` (runs a query and returns its one value) and `session` (opens a connection for a block of code), the `PostgresSettings` class, and `run_file` (runs a whole SQL file).
+
+`src/slow_queries/infrastructure/health_probes.py`, lines 1 to 1:
+
+```python
+"""Adapter: the health check of the one dependency, PostgreSQL."""
+```
+
+The docstring: the health check of the one dependency, PostgreSQL.
+
+`src/slow_queries/infrastructure/health_probes.py`, lines 7 to 8:
+
+```python
+from ..application.health import ProbeFailedError
+from .postgres import scalar, session
+```
+
+`ProbeFailedError` is the lab's own error for "this dependency is not usable", raised so that callers never see a driver-specific error. `scalar` and `session` are the two connection helpers described above.
+
 ## Try it yourself
 
 1. `.venv/bin/python` starts an interactive session. Type `from slow_queries.domain.host import HostLoad; HostLoad(40.0, 12).note()` and press Enter: it prints the "Measured on a loaded machine..." sentence. Try `HostLoad(2.0, 12).note()` for the quiet version. Exit with Ctrl-D.

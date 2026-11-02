@@ -265,6 +265,152 @@ COMMIT;
 
 `reset.sql` drops both tables in one transaction (`CASCADE` also drops things that depend on `orders`). The bench file is one `INSERT ... SELECT` of 10,000 rows shaped like the seed; the Python code puts `EXPLAIN (ANALYZE, BUFFERS, WAL)` in front of it and rolls back. The migration files are covered in the PostgreSQL-indexes note; the down scripts mirror them (`DROP INDEX IF EXISTS` for 001 to 003, and `CREATE INDEX IF NOT EXISTS` to restore the narrow index for 004), each in `BEGIN; ... COMMIT;`.
 
+### The remaining SQL files, line by line
+
+Every file below is a plain SQL script. A line that starts with two hyphens (`--`) is a **comment**: text for the reader, ignored by PostgreSQL. A statement ends at a semicolon. `EXPLAIN` asks PostgreSQL to show how it would run a query instead of returning the rows; with the option `ANALYZE` it really runs the query and adds the measured times; `BUFFERS` adds how many 8 kilobyte pages were touched; `SERIALIZE` (PostgreSQL 17 and later) also measures the work of turning the rows into the text sent to the client, which matters when a column holds a large value. `SET timezone = 'UTC';` makes the session read and print timestamps in UTC, so that the date literals below mean the same thing on every machine.
+
+#### The "down" migrations
+
+Each migration has a script that undoes it. `BEGIN;` starts a transaction (a group of statements that either all take effect or none does) and `COMMIT;` ends it and makes it permanent. `DROP INDEX IF EXISTS name;` removes an index, and the words `IF EXISTS` make it a quiet no-op when the index is already gone, which is why each file says it is safe to run twice.
+
+`sql/migrations/down/001_index_created_at.down.sql`, lines 1 to 4:
+
+```sql
+-- Undo migration 001. Safe to run twice.
+BEGIN;
+DROP INDEX IF EXISTS idx_orders_created_at;
+COMMIT;
+```
+
+Undoes migration 001 by removing `idx_orders_created_at`, the index on the creation time.
+
+`sql/migrations/down/002_index_customer_created.down.sql`, lines 1 to 4:
+
+```sql
+-- Undo migration 002. Safe to run twice.
+BEGIN;
+DROP INDEX IF EXISTS idx_orders_customer_created;
+COMMIT;
+```
+
+Undoes migration 002 by removing `idx_orders_customer_created`, the index on the customer and creation time together.
+
+`sql/migrations/down/003_index_listing_covering.down.sql`, lines 1 to 4:
+
+```sql
+-- Undo migration 003. Safe to run twice.
+BEGIN;
+DROP INDEX IF EXISTS idx_orders_listing;
+COMMIT;
+```
+
+Undoes migration 003 by removing `idx_orders_listing`, the covering index (an index that also stores the other columns a query needs, so the table itself need not be read).
+
+#### The explain scripts
+
+Each of these files is run by the replay; the plan it prints is saved as a text file with the same name and quoted by the tests and the results notes.
+
+`sql/explain/q1_day_after.sql`, lines 1 to 4:
+
+```sql
+-- Query 1 after: a half-open range on the raw column, served by idx_orders_created_at (migration 001).
+SET timezone = 'UTC';
+EXPLAIN (ANALYZE, BUFFERS)
+SELECT * FROM orders WHERE created_at >= '2026-03-14' AND created_at < '2026-03-15';
+```
+
+Query 1 after migration 001. The condition is a half-open range on the raw column: `created_at >= '2026-03-14' AND created_at < '2026-03-15'` includes midnight of the 14th and excludes midnight of the 15th, so every moment of that day is matched exactly once, and, because the column is not wrapped in a function, the index on `created_at` can be used.
+
+`sql/explain/q2_latest_whale_before.sql`, lines 1 to 4:
+
+```sql
+-- Query 2 before, a heavy customer (about 12,000 orders): scan every row, then top-N sort.
+SET timezone = 'UTC';
+EXPLAIN (ANALYZE, BUFFERS)
+SELECT * FROM orders WHERE customer_id = 7 ORDER BY created_at DESC LIMIT 10;
+```
+
+Query 2 before the index, for customer 7, who has about 12,000 orders. `ORDER BY created_at DESC LIMIT 10` asks for the newest ten. With no index on the customer, PostgreSQL must read every row of the table, keep the rows of customer 7 and sort them, keeping only the top ten (a "top-N sort").
+
+`sql/explain/q2_latest_whale_after.sql`, lines 1 to 4:
+
+```sql
+-- Query 2 after, the same heavy customer: ten index entries, no Sort node (migration 002).
+SET timezone = 'UTC';
+EXPLAIN (ANALYZE, BUFFERS)
+SELECT * FROM orders WHERE customer_id = 7 ORDER BY created_at DESC LIMIT 10;
+```
+
+The same query after migration 002. The index on `(customer_id, created_at)` holds each customer's orders in time order, so PostgreSQL can walk it backwards for ten entries and stop: no sort node is needed.
+
+`sql/explain/q2_latest_small_before.sql`, lines 1 to 4:
+
+```sql
+-- Query 2 before, a customer with 7 orders: still a full scan, because nothing finds the customer.
+SET timezone = 'UTC';
+EXPLAIN (ANALYZE, BUFFERS)
+SELECT * FROM orders WHERE customer_id = 31337 ORDER BY created_at DESC LIMIT 10;
+```
+
+The same question for customer 31337, who has only 7 orders. Before the index the table is still read in full, because nothing can find a customer's rows without scanning.
+
+`sql/explain/q2_latest_small_after.sql`, lines 1 to 4:
+
+```sql
+-- Query 2 after, the same small customer: seven entries, already in order (migration 002).
+SET timezone = 'UTC';
+EXPLAIN (ANALYZE, BUFFERS)
+SELECT * FROM orders WHERE customer_id = 31337 ORDER BY created_at DESC LIMIT 10;
+```
+
+After migration 002 the seven entries are read in order from the index. `LIMIT 10` asks for more rows than exist, so all seven come back.
+
+`sql/explain/q3_listing_before.sql`, lines 1 to 5:
+
+```sql
+-- Query 3 before: SELECT * for a listing that shows five columns; with idx_orders_customer_created the
+-- rows are found fast, but every heap page is visited and the wide notes column is sent to the client.
+SET timezone = 'UTC';
+EXPLAIN (ANALYZE, BUFFERS, SERIALIZE)
+SELECT * FROM orders WHERE customer_id = 7 AND created_at >= '2026-03-01' AND created_at < '2026-04-01' ORDER BY created_at DESC;
+```
+
+Query 3 before the covering index: a listing page for customer 7 for the month of March 2026. The two comment lines explain it: `SELECT *` returns every column, including the wide `notes` column, so even with the index on customer and time every row's table page is visited and the notes are sent to the client. The date range is again half-open, from the first of March up to but not including the first of April.
+
+`sql/explain/q3_listing_narrow.sql`, lines 1 to 5:
+
+```sql
+-- Query 3, the five columns named but no covering index yet: the same heap pages are still visited;
+-- the notes column is inline here, so naming columns only shrinks what is sent to the client.
+SET timezone = 'UTC';
+EXPLAIN (ANALYZE, BUFFERS, SERIALIZE)
+SELECT id, customer_id, status, created_at, total FROM orders WHERE customer_id = 7 AND created_at >= '2026-03-01' AND created_at < '2026-04-01' ORDER BY created_at DESC;
+```
+
+The same listing with the five columns the page displays named instead of `*`. Without a covering index the same table pages are still visited; the comment says the notes column is stored inline here, so naming columns only shrinks what is sent to the client.
+
+`sql/explain/q3_listing_after.sql`, lines 1 to 4:
+
+```sql
+-- Query 3 after: five columns and the covering index idx_orders_listing (migration 003), no heap visits.
+SET timezone = 'UTC';
+EXPLAIN (ANALYZE, BUFFERS, SERIALIZE)
+SELECT id, customer_id, status, created_at, total FROM orders WHERE customer_id = 7 AND created_at >= '2026-03-01' AND created_at < '2026-04-01' ORDER BY created_at DESC;
+```
+
+The five-column listing after migration 003. The covering index `idx_orders_listing` contains all five columns, so the plan can be an index-only scan with no visits to the table.
+
+`sql/explain/q3_toast_narrow.sql`, lines 1 to 4:
+
+```sql
+-- The same rows without the note: the TOAST table is never read.
+SET timezone = 'UTC';
+EXPLAIN (ANALYZE, BUFFERS, SERIALIZE)
+SELECT id, customer_id, status, created_at, total FROM order_notes_demo WHERE customer_id = 7 AND created_at < '2026-02-01';
+```
+
+A demonstration on the table `order_notes_demo`, which has a very large `note` column. PostgreSQL stores values that large outside the main table, in a side table called the TOAST table. Selecting only the small columns means the side table is never read; the comment says so. The condition `created_at < '2026-02-01'` selects the old rows of customer 7.
+
 ## Try it yourself
 
 (After `make up db`; `P="docker compose exec -T db psql -U lab -d lab"`.)
