@@ -65,6 +65,8 @@ Indexes after all migrations: `orders_pkey (id)`, `idx_orders_created_at (create
 
 ## Data flow of one run (`make run`)
 
+Drawn versions of this figure and of the walk-through: [the architecture](docs/diagrams/architecture.svg) and [one run](docs/diagrams/flow.svg).
+
 ```mermaid
 flowchart LR
     seed["Seed script<br/>1,000,000 rows"] --> orders[("orders table")]

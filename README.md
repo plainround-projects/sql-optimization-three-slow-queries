@@ -4,6 +4,24 @@ A one-million-row `orders` table in PostgreSQL 18 with real skew, three slow que
 
 This repository is the runnable build of the Plainround lesson **"Read plans and fix three slow queries"** (`/prep/sql-optimization/project-three-slow-queries`, planned at **5 hours**). The lesson is in the SQL optimization track; its first topic ("How queries run") defines the PostgreSQL lab this project builds on.
 
+## Architecture
+
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="docs/diagrams/architecture-dark.svg">
+  <img alt="The run_cli command starts ReplayLesson, which reads plans and applies migrations through the lab_database adapter and writes the notes file through the ArtifactStore port. The adapter runs EXPLAIN and rolled-back inserts against the orders table and applies the index migrations 001 to 004. A seed script loads one million rows." src="docs/diagrams/architecture.svg">
+</picture>
+
+Notice that the table and the indexes live in PostgreSQL while the replay logic stays in the package behind two ports; amber marks the plan before any index.
+
+## How one run flows
+
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="docs/diagrams/flow-dark.svg">
+  <img alt="One make run in five steps. ReplayLesson resets the table, reads the slow plans, adds one index at a time while timing 10,000 rolled-back inserts, and writes results.md. Amber rows are the slow scan and the write cost of each index." src="docs/diagrams/flow.svg">
+</picture>
+
+The run ends with the notes file, whose headline row shows the heavy-customer query going from 542.699 ms to 0.030 ms.
+
 ## Prerequisites
 
 | Tool | Version | Notes |

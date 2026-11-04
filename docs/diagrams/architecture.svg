@@ -1,0 +1,116 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="700" viewBox="0 0 1200 700" role="img" aria-labelledby="t d">
+<title id="t">Three slow queries: architecture</title>
+<desc id="d">The run_cli command starts ReplayLesson, which calls the lab_database adapter through the LabDatabase port and writes the notes file through the ArtifactStore port. The adapter runs EXPLAIN and rolled-back inserts against the orders table and applies the index migrations 001 to 004 that you add. A seed script loads one million rows into orders. An amber note marks the plan before any index.</desc>
+<style>
+:root{--paper:#ffffff;--ink:#10243d;--mute:#52677f;--accent:#0a6aa8;--good:#19743f;--warn:#8a5a00}
+text{font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,'Liberation Mono',monospace;fill:var(--ink)}
+.title{font-family:Georgia,'Iowan Old Style','Times New Roman',serif;font-size:36px}
+.caption{font-size:16px;fill:var(--mute)}
+.name{font-size:20px;font-weight:600}
+.lane{font-size:17px;font-weight:600}
+.sub{font-size:15px;fill:var(--mute)}
+.label{font-size:15px}
+.tag{font-size:15px;fill:var(--mute)}
+.num{font-size:15px;font-weight:700;fill:var(--paper)}
+.legend{font-size:14px;fill:var(--mute)}
+.t-accent{fill:var(--accent)}
+.t-good{fill:var(--good)}
+.t-warn{fill:var(--warn)}
+.t-ink{fill:var(--ink)}
+.b{font-weight:600}
+.paper{fill:var(--paper);stroke:var(--mute);stroke-opacity:.3}
+.grid{fill:url(#grid)}
+.boundary{fill:var(--mute);fill-opacity:.035;stroke:var(--mute);stroke-opacity:.7;stroke-dasharray:6 5}
+.svc{fill:var(--accent);fill-opacity:.08;stroke:var(--accent);stroke-width:1.25}
+.store{fill:var(--mute);fill-opacity:.1;stroke:var(--mute);stroke-width:1.25}
+.rim{fill:none;stroke:var(--mute);stroke-width:1.25}
+.actor{fill:none;stroke:var(--mute);stroke-width:1.25}
+.slot{fill:var(--accent);fill-opacity:.14;stroke:var(--accent);stroke-width:1}
+.note{fill:var(--warn);fill-opacity:.09;stroke:var(--warn);stroke-width:1}
+.win{fill:var(--good);fill-opacity:.09;stroke:var(--good);stroke-width:1}
+.hair{fill:none;stroke:var(--mute);stroke-opacity:.4;stroke-width:1}
+.zone{fill:var(--accent);fill-opacity:.045;stroke:var(--accent);stroke-width:1.25;stroke-dasharray:6 5}
+.stop{fill:none;stroke:var(--warn);stroke-width:4;stroke-linecap:round}
+.mask{fill:var(--paper)}
+.sync,.async,.read,.fail,.ok{fill:none}
+.sync{stroke:var(--accent);stroke-width:1.75;marker-end:url(#a-sync)}
+.async{stroke:var(--accent);stroke-width:1.75;stroke-dasharray:8 6;marker-end:url(#a-async)}
+.read{stroke:var(--mute);stroke-width:1.75;stroke-linecap:round;stroke-dasharray:1 6;marker-end:url(#a-read)}
+.fail{stroke:var(--warn);stroke-width:2;marker-end:url(#a-fail)}
+.ok{stroke:var(--good);stroke-width:1.75;marker-end:url(#a-ok)}
+.dot{fill:var(--accent)}
+.dot-w{fill:var(--warn)}
+.dot-g{fill:var(--good)}
+.head-sync,.head-async{stroke:var(--accent)}
+.head-sync{fill:var(--accent)}
+.head-async,.head-read{fill:none;stroke-width:1.6;stroke-linecap:round;stroke-linejoin:round}
+.head-read{stroke:var(--mute)}
+.head-fail{fill:var(--warn)}
+.head-ok{fill:var(--good)}
+.gridline{fill:none;stroke:var(--mute);stroke-opacity:.09}
+</style>
+<defs>
+<pattern id="grid" width="40" height="40" patternUnits="userSpaceOnUse"><path class="gridline" d="M40 0H0V40"/></pattern>
+<marker id="a-sync" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="9" markerHeight="9" markerUnits="userSpaceOnUse" orient="auto-start-reverse"><path class="head-sync" d="M0 0L10 5L0 10z"/></marker>
+<marker id="a-async" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="10" markerHeight="10" markerUnits="userSpaceOnUse" orient="auto-start-reverse"><path class="head-async" d="M1 1L9 5L1 9"/></marker>
+<marker id="a-read" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="10" markerHeight="10" markerUnits="userSpaceOnUse" orient="auto-start-reverse"><path class="head-read" d="M1 1L9 5L1 9"/></marker>
+<marker id="a-fail" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="10" markerHeight="10" markerUnits="userSpaceOnUse" orient="auto-start-reverse"><path class="head-fail" d="M0 0L10 5L0 10z"/></marker>
+<marker id="a-ok" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="9" markerHeight="9" markerUnits="userSpaceOnUse" orient="auto-start-reverse"><path class="head-ok" d="M0 0L10 5L0 10z"/></marker>
+</defs>
+<rect class="paper" x="0.5" y="0.5" width="1199" height="699" rx="16"/>
+<rect class="grid" x="1" y="1" width="1198" height="698" rx="16"/>
+<text class="title" x="48" y="68">One table, three slow queries</text>
+<text class="caption" x="48" y="100">The replay reads a plan, adds one index, reads the plan again. Amber: what the plan looks like before any index.</text>
+<rect class="boundary" x="48" y="132" width="736" height="186" rx="14"/>
+<text class="tag" x="64" y="160">Python package slow_queries</text>
+<rect class="svc" x="72" y="184" width="200" height="108" rx="12"/>
+<text class="name" x="88" y="216">run_cli</text>
+<text class="sub" x="88" y="240">interface layer</text>
+<text class="sub" x="88" y="262">make run</text>
+<rect class="svc" x="342" y="184" width="210" height="108" rx="12"/>
+<text class="name" x="358" y="216">ReplayLesson</text>
+<text class="sub" x="358" y="240">application layer</text>
+<text class="sub" x="358" y="262">checks should_stop</text>
+<rect class="svc" x="598" y="184" width="166" height="108" rx="12"/>
+<text class="name" x="614" y="216">lab_database</text>
+<text class="sub" x="614" y="240">infrastructure</text>
+<text class="sub" x="614" y="262">LabDatabase</text>
+<rect class="boundary" x="888" y="132" width="264" height="468" rx="14"/>
+<text class="tag" x="904" y="160">PostgreSQL 18</text>
+<rect class="svc" x="912" y="184" width="216" height="108" rx="12"/>
+<text class="name" x="928" y="216">Indexes you add</text>
+<text class="sub" x="928" y="240">migrations 001 to 004</text>
+<text class="sub" x="928" y="262">one per change</text>
+<path class="store" d="M912 452a108 12 0 0 1 216 0v102a108 12 0 0 1 -216 0z"/>
+<path class="rim" d="M912 452a108 12 0 0 0 216 0"/>
+<text class="name" x="1020" y="480" text-anchor="middle">orders table</text>
+<text class="sub" x="1020" y="502" text-anchor="middle">1,000,000 rows</text>
+<text class="sub" x="1020" y="524" text-anchor="middle">+ order_notes_demo</text>
+<path class="store" d="M296 452a108 12 0 0 1 216 0v102a108 12 0 0 1 -216 0z"/>
+<path class="rim" d="M296 452a108 12 0 0 0 216 0"/>
+<text class="name" x="404" y="480" text-anchor="middle">Notes file</text>
+<text class="sub" x="404" y="502" text-anchor="middle">explain/*.txt</text>
+<text class="sub" x="404" y="524" text-anchor="middle">results.md</text>
+<rect class="svc" x="560" y="520" width="200" height="100" rx="12"/>
+<text class="name" x="576" y="552">Seed script</text>
+<text class="sub" x="576" y="576">sql/001, sql/002</text>
+<text class="sub" x="576" y="598">1M skewed rows</text>
+<rect class="note" x="48" y="380" width="216" height="100" rx="10"/>
+<text class="label b t-warn" x="64" y="408">Before any index</text>
+<text class="sub" x="64" y="432">q1 day query:</text>
+<text class="sub" x="64" y="454">Seq Scan, 63,750 pages</text>
+<path class="sync" d="M272 238H342"/>
+<path class="sync" d="M552 238H598"/>
+<text class="label t-accent" x="560" y="226">port</text>
+<path class="sync" d="M764 238H912"/>
+<text class="label t-accent" x="796" y="226">migrations</text>
+<path class="sync" d="M681 292V458Q681 470 693 470H912"/>
+<text class="label t-accent" x="700" y="458">EXPLAIN, inserts</text>
+<path class="sync" d="M1020 292V440"/>
+<text class="label t-accent" x="1032" y="370">CREATE INDEX</text>
+<path class="sync" d="M404 292V440"/>
+<text class="label t-accent" x="416" y="370">ArtifactStore</text>
+<path class="sync" d="M760 536H912"/>
+<text class="label t-accent" x="800" y="524">INSERT</text>
+<path class="sync" d="M48 656H112"/><text class="legend" x="124" y="661">sync call</text>
+</svg>
