@@ -91,16 +91,17 @@ flowchart LR
 From `sql/explain/q1_day_before.txt`:
 
 ```text
-Seq Scan on orders  (cost=0.00..78125.01 rows=5000 width=456) (actual time=1.158..384.276 rows=2748.00 loops=1)
+Seq Scan on orders  (cost=0.00..78758.28 rows=5003 width=457) (actual time=0.455..830.145 rows=2748.00 loops=1)
   Filter: (date(created_at) = '2026-03-14'::date)
   Rows Removed by Filter: 997252
-  Buffers: shared hit=47646 read=15479 written=158
+  Buffers: shared hit=2058 read=61692
+  I/O Timings: shared read=448.925
 ```
 
-- `Seq Scan`: no index can answer the question, so every page of the table is read: 63,125 pages (`hit` + `read`), 493 MB.
+- `Seq Scan`: no index can answer the question, so every page of the table is read: 63,750 pages (`hit` + `read`), 498 MB.
 - `Filter` with `Rows Removed by Filter: 997252`: each of the million rows was read, `date()` was computed, and 997,252 failed the test. This is where the time went.
-- `rows=5000` against `rows=2748.00`: the estimate is a guess. Through `date()` the planner cannot use the statistics of `created_at`, so it applies a built-in default fraction of the table. The true count is 2,748, about one day's share of a year (1,000,000 / 365 = 2,740).
-- `Buffers ... read=15479`: part of the table came from disk (or the operating system cache) rather than PostgreSQL's own buffers; `written=158` is the scan evicting dirty pages. Both vanish on a warm second run, which is why the runner keeps the second run.
+- `rows=5003` against `rows=2748.00`: the estimate is a guess. Through `date()` the planner cannot use the statistics of `created_at`, so it applies a built-in default fraction of the table. The true count is 2,748, about one day's share of a year (1,000,000 / 365 = 2,740).
+- `Buffers ... read=61692`: nearly all of the table's pages came into PostgreSQL's buffers from the operating system cache or disk in this run, and `I/O Timings: shared read=448.925` says about 449 ms of the 831 ms was spent waiting for them. The runner keeps the second of two runs; on a quieter machine more of the pages are `hit`.
 
 After the range rewrite and `idx_orders_created_at`, the plan becomes a `Bitmap Index Scan` on the index (11 pages) feeding a `Bitmap Heap Scan` (2,702 heap pages). It is a bitmap scan, not a plain `Index Scan`, because `created_at` has no relation to the physical row order here (the seed assigns timestamps at random), so 2,748 rows live on 2,702 different pages and visiting them in page order wins.
 
@@ -109,7 +110,7 @@ After the range rewrite and `idx_orders_created_at`, the plan becomes a `Bitmap 
 - **`created_at` index, a plain B-tree.** The only access pattern is a range on one column. The range is half-open (`>= start AND < next day`) so there is no off-by-one at midnight and no `BETWEEN` that includes the next day's first instant.
 - **`(customer_id, created_at DESC)`: equality column first, sort column second.** The index stores one customer's rows together and newest first, which is exactly the order `ORDER BY created_at DESC LIMIT 10` wants. `(created_at, customer_id)` would put the whole year in time order and cannot seek to one customer. The `DESC` is not required (an ascending index can be scanned backward), but it makes the intent readable and matters once there is a second sort column.
 - **Covering index with `INCLUDE`, not extra key columns.** `INCLUDE (id, status, total)` stores those columns in the leaf pages without making them part of the ordering key, so the index keeps its sort order and uniqueness semantics. The cost is size: 60 MB against 30 MB for the narrow index.
-- **Why 506 pages for 1,010 rows on an `Index Only Scan`.** The index itself is only a handful of pages. The rest are visibility-map lookups: each row's heap page must be checked as all-visible, and the table's 63,125 heap pages need two 8 KB visibility-map pages, so a customer's rows (spread over 1,000 heap pages) keep switching between them and each switch is counted as a buffer access. Measured: the same query on a copy of the table cut to 28,160 heap pages (one map page) read 7 pages for 489 rows. So the count is correct but partly an accounting artifact; heap fetches, the expensive part, are zero.
+- **Why 506 pages for 1,010 rows on an `Index Only Scan`.** The index itself is only a handful of pages. The rest are visibility-map lookups: each row's heap page must be checked as all-visible, and the table's 63,750 heap pages need two 8 KB visibility-map pages, so a customer's rows (spread over 1,000 heap pages) keep switching between them and each switch is counted as a buffer access. Measured: the same query on a copy of the table cut to 28,160 heap pages (one map page) read 7 pages for 489 rows. So the count is correct but partly an accounting artifact; heap fetches, the expensive part, are zero.
 - **`VACUUM` after the covering index (migration `003`).** An index-only scan is only index-only for pages the visibility map marks all-visible. Without the `VACUUM`, `Heap Fetches` would not be 0. On a table that takes writes all day, expect some heap fetches to remain.
 - **Dropping the narrow index (migration `004`).** `idx_orders_listing` starts with the same two columns, so it also serves query 2; two indexes with the same prefix is write cost with no read benefit. The trade-off is that the one remaining index is about twice the size of the narrow one, so every plan on it touches slightly more index pages.
 - **Statistics.** `VACUUM (ANALYZE)` right after the load, and `ANALYZE` after each migration. Plans read against stale statistics are misleading evidence, which is why the first integration test asserts fresh statistics before anything else.
@@ -124,7 +125,7 @@ All of these run in `make psql` after `make db`; the first line makes sure no le
 | Failure | Reproduce | What you see |
 |---|---|---|
 | **Sequential scan from a non-sargable predicate** | `DROP INDEX IF EXISTS idx_orders_created_at; EXPLAIN (ANALYZE, BUFFERS) SELECT * FROM orders WHERE date(created_at) = '2026-03-14';` | `Seq Scan`, 997,252 rows removed by filter. Create the index and keep the `date()` form: the plan is still a `Seq Scan`, because the index is on the raw value. |
-| **Sort of a whole customer's rows** | `EXPLAIN (ANALYZE) SELECT * FROM orders WHERE customer_id = 7 ORDER BY created_at DESC LIMIT 10;` with only the primary key | `Seq Scan` feeding `Sort Method: top-N heapsort`; 63,125 pages for ten rows. An index on `created_at` alone does not fix it: the planner walks the time index backward and filters by customer (80 ms for a heavy customer in a trial run; a customer with few orders makes it walk much further before it finds ten). |
+| **Sort of a whole customer's rows** | `EXPLAIN (ANALYZE) SELECT * FROM orders WHERE customer_id = 7 ORDER BY created_at DESC LIMIT 10;` with only the primary key | `Seq Scan` feeding `Sort Method: top-N heapsort`; 63,750 pages for ten rows. An index on `created_at` alone does not fix it: the planner walks the time index backward and filters by customer (80 ms for a heavy customer in a trial run; a customer with few orders makes it walk much further before it finds ten). |
 | **Fetching what you do not show** | Run `sql/explain/q3_toast_wide.sql` then `q3_toast_narrow.sql` | The wide query reads 10,832 pages (the table's 207 plus the TOAST table, shown under `Serialization:`), the narrow one 207. |
 | **A covering index that is not index-only** | Create `idx_orders_listing`, then `UPDATE orders SET total = total WHERE customer_id = 7;` and run `q3_listing_after.sql` before any `VACUUM` | The plan is still an `Index Only Scan`, but `Heap Fetches` jumps from 0 to 2,020 and the time from 0.26 ms to 134 ms (trial run): the updated pages are not all-visible until `VACUUM orders` runs, and after it `Heap Fetches` is 0 again. |
 | **The index tax** | Read the write-cost table in `sql/explain/results.md`, or run `make run` | Each index adds about 10,000 WAL records and 30,000 page touches per 10,000 inserts. |
